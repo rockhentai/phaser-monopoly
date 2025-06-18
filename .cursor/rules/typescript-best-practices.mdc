@@ -1,0 +1,9 @@
+---
+description: TypeScript coding standards and type safety guidelines
+globs: 
+alwaysApply: false
+---
+- Use strict null checks to avoid runtime errors
+- Prefer interface over type for defining object shapes
+- Implement type guards and assertions to ensure type safety
+- Utilize generics for reusable components and functions

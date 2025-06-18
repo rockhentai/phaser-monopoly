@@ -1,0 +1,9 @@
+---
+description: Best practices for Phaser 3 game development
+globs: 
+alwaysApply: false
+---
+- Organize game states and scenes into separate files for better maintainability
+- Use the built-in asset loader to manage game assets efficiently
+- Implement a game loop that separates logic updates from rendering for smoother performance
+- Utilize Phaser's built-in physics systems for realistic interactions

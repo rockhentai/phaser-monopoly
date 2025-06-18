@@ -1,0 +1,43 @@
+---
+description: 项目基本介绍
+globs: 
+alwaysApply: false
+---
+# Phaser 大富翁游戏项目
+
+## 项目概述
+
+这是一个基于 Phaser 3 游戏引擎开发的大富翁（Monopoly）游戏项目，采用现代化的前端技术栈构建，为玩家提供经典的大富翁游戏体验。
+
+## 🛠️ 技术栈
+
+游戏引擎: Phaser 3.90.0 - 强大的2D游戏开发框架
+构建工具: Vite 6.3.1 - 快速的前端构建工具
+编程语言: TypeScript 5.7.2 - 类型安全的JavaScript超集
+包管理: npm - Node.js包管理器
+
+## 📁 项目结构
+
+phaser-monopoly/
+├── src/                    # 源代码目录
+│   ├── main.ts            # 应用程序入口点
+│   ├── vite-env.d.ts      # Vite环境类型定义
+│   └── game/              # 游戏核心代码
+│       ├── main.ts        # 游戏配置和启动
+│       └── scenes/        # 游戏场景
+│           ├── Boot.ts    # 启动场景
+│           ├── Preloader.ts # 资源预加载场景
+│           ├── MainMenu.ts  # 主菜单场景
+│           ├── Game.ts     # 主游戏场景
+│           └── GameOver.ts # 游戏结束场景
+├── public/                # 静态资源目录
+│   ├── assets/           # 游戏资源文件
+│   │   ├── logo.png      # 游戏Logo
+│   │   └── bg.png        # 背景图片
+│   ├── style.css         # 全局样式
+│   └── favicon.png       # 网站图标
+├── vite/                 # Vite配置文件
+├── index.html           # HTML入口文件
+├── package.json         # 项目依赖配置
+├── tsconfig.json        # TypeScript配置
+└── README.md           # 项目说明文档
