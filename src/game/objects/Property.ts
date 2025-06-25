@@ -1,178 +1,57 @@
 import { Scene } from 'phaser';
 import { BoardCell, CellType, PropertyColor } from '../types/GameTypes';
 
+export interface PropertyInfo {
+    id: number;
+    name: string;
+    type: CellType;
+    price?: number;
+    baseRent: number;
+    currentRent: number;
+    ownerId?: number;
+    houses: number;
+    hotel: boolean;
+    mortgaged: boolean;
+    canPurchase: boolean;
+    color?: PropertyColor;
+    position: { x: number; y: number };
+}
+
 export class Property {
     private scene: Scene;
     private cellData: BoardCell;
+    private container: Phaser.GameObjects.Container;
+    
+    // 地产状态
     private ownerId?: number;
     private houses: number = 0;
     private hotel: boolean = false;
     private mortgaged: boolean = false;
+    
+    // 视觉元素
     private ownerIndicator?: Phaser.GameObjects.Graphics;
-    private buildingsContainer?: Phaser.GameObjects.Container;
-    private boardContainer: Phaser.GameObjects.Container;
+    private buildingIndicators: Phaser.GameObjects.Text[] = [];
 
     constructor(scene: Scene, cellData: BoardCell, boardContainer: Phaser.GameObjects.Container) {
         this.scene = scene;
         this.cellData = cellData;
-        this.boardContainer = boardContainer;
-    }
-
-    // 获取地产基础信息
-    public getInfo() {
-        return {
-            id: this.cellData.id,          // 地产的唯一标识符
-            name: this.cellData.name,      // 地产的名称
-            type: this.cellData.type,      // 地产的类型（如：地产、机会、命运等）
-            color: this.cellData.color,    // 地产所属的颜色组
-            price: this.cellData.price,    // 地产的购买价格
-            baseRent: this.cellData.rent?.[0] || 0,  // 地产的基础租金（无建筑时）
-            ownerId: this.ownerId,         // 地产所有者的玩家ID
-            houses: this.houses,           // 当前建造的房屋数量（0-4）
-            hotel: this.hotel,             // 是否已建造酒店
-            mortgaged: this.mortgaged,     // 地产是否已被抵押
-            canPurchase: this.canPurchase(),  // 该地产当前是否可被购买
-            currentRent: this.getCurrentRent()  // 根据建筑情况计算的当前租金
-        };
-    }
-
-    // 检查是否可以购买
-    public canPurchase(): boolean {
-        return this.ownerId === undefined && 
-               (this.cellData.type === CellType.PROPERTY || 
-                this.cellData.type === CellType.UTILITY || 
-                this.cellData.type === CellType.RAILROAD) && 
-               !this.mortgaged &&
-               this.cellData.price !== undefined;
+        this.container = boardContainer;
+        
+        console.log(`🏠 创建地产: ${cellData.name} (位置 ${cellData.id})`);
     }
 
     // 购买地产
     public purchase(playerId: number): boolean {
-        if (!this.canPurchase()) {
+        if (this.ownerId !== undefined) {
+            console.log(`❌ 地产 ${this.cellData.name} 已被拥有`);
             return false;
         }
 
-        const oldRent = this.getCurrentRent(); // 购买前的租金（应该是0）
         this.ownerId = playerId;
-        const newRent = this.getCurrentRent(); // 购买后的租金（应该是基础租金）
+        this.updateVisualOwnership();
         
-        console.log(`🏠 玩家${playerId + 1} 购买了 ${this.cellData.name}，价格：$${this.cellData.price}`);
-        console.log(`📊 租金变化: $${oldRent} → $${newRent}`);
-        
-        // 明确更新租金状态
-        this.updateRentStatus();
-        
-        // 显示所有权标识
-        this.showOwnershipIndicator(playerId);
-        
+        console.log(`✅ 玩家 ${playerId + 1} 购买了 ${this.cellData.name}`);
         return true;
-    }
-
-    // 更新租金状态（明确处理租金变化）
-    private updateRentStatus(): void {
-        const currentRent = this.getCurrentRent();
-        console.log(`💰 ${this.cellData.name} 租金更新为: $${currentRent}`);
-        
-        // 如果需要，这里可以添加其他租金变化时的处理逻辑
-        // 比如通知其他系统、更新UI等
-    }
-
-    // 计算当前租金
-    public getCurrentRent(diceTotal?: number, propertyManager?: any): number {
-        if (this.ownerId === undefined || this.mortgaged) {
-            return 0;
-        }
-
-        // 处理公用事业的特殊租金计算
-        if (this.cellData.type === CellType.UTILITY) {
-            if (!diceTotal || !propertyManager) {
-                return 0; // 公用事业需要骰子点数和地产管理器才能计算租金
-            }
-            
-            // 计算玩家拥有的公用事业数量
-            const utilitiesOwned = this.countPlayerUtilities(this.ownerId, propertyManager);
-            
-            if (utilitiesOwned === 1) {
-                return diceTotal * 4; // 拥有1个公用事业：骰子点数 × 4
-            } else if (utilitiesOwned >= 2) {
-                return diceTotal * 10; // 拥有2个公用事业：骰子点数 × 10
-            }
-            
-            return 0;
-        }
-
-        // 处理铁路的特殊租金计算
-        if (this.cellData.type === CellType.RAILROAD) {
-            if (!propertyManager) {
-                return this.cellData.rent?.[0] || 0;
-            }
-            
-            // 计算玩家拥有的铁路数量
-            const railroadsOwned = this.countPlayerRailroads(this.ownerId, propertyManager);
-            const rentIndex = Math.min(railroadsOwned - 1, 3); // 最多4个铁路
-            
-            return this.cellData.rent?.[rentIndex] || 0;
-        }
-
-        // 普通地产租金计算
-        if (!this.cellData.rent) {
-            return 0;
-        }
-
-        // 基础租金
-        let rent = this.cellData.rent[0];
-
-        if (this.hotel) {
-            // 酒店租金
-            rent = this.cellData.rent[5] || rent * 10;
-        } else if (this.houses > 0) {
-            // 房屋租金
-            rent = this.cellData.rent[this.houses] || rent * (this.houses + 1);
-        }
-
-        return rent;
-    }
-
-    // 计算玩家拥有的公用事业数量
-    private countPlayerUtilities(playerId: number, propertyManager: any): number {
-        let count = 0;
-        const utilities = [12, 28]; // 电力公司和自来水厂的位置
-        
-        for (const position of utilities) {
-            const property = propertyManager.getProperty(position);
-            if (property && property.getOwnerId() === playerId) {
-                count++;
-            }
-        }
-        
-        return count;
-    }
-
-    // 计算玩家拥有的铁路数量
-    private countPlayerRailroads(playerId: number, propertyManager: any): number {
-        let count = 0;
-        const railroads = [5, 15, 25, 35]; // 四个铁路车站的位置
-        
-        for (const position of railroads) {
-            const property = propertyManager.getProperty(position);
-            if (property && property.getOwnerId() === playerId) {
-                count++;
-            }
-        }
-        
-        return count;
-    }
-
-    // 收取租金
-    public collectRent(fromPlayerId: number): number {
-        if (this.ownerId === undefined || this.ownerId === fromPlayerId || this.mortgaged) {
-            return 0;
-        }
-
-        const rent = this.getCurrentRent();
-        console.log(`💰 玩家${fromPlayerId + 1} 向玩家${this.ownerId + 1} 支付租金 $${rent} (${this.cellData.name})`);
-        
-        return rent;
     }
 
     // 建造房屋
@@ -181,19 +60,10 @@ export class Property {
             return false;
         }
 
-        const oldRent = this.getCurrentRent();
         this.houses++;
-        const newRent = this.getCurrentRent();
+        this.updateBuildingVisuals();
         
-        console.log(`🏗️ 在 ${this.cellData.name} 建造了第${this.houses}栋房屋`);
-        console.log(`📊 租金变化: $${oldRent} → $${newRent}`);
-        
-        // 明确更新租金状态
-        this.updateRentStatus();
-        
-        // 更新建筑显示
-        this.updateBuildingsDisplay();
-        
+        console.log(`🏗️ 在 ${this.cellData.name} 建造了第 ${this.houses} 栋房屋`);
         return true;
     }
 
@@ -203,39 +73,35 @@ export class Property {
             return false;
         }
 
-        const oldRent = this.getCurrentRent();
-        this.houses = 0;
+        this.houses = 0; // 移除所有房屋
         this.hotel = true;
-        const newRent = this.getCurrentRent();
+        this.updateBuildingVisuals();
         
         console.log(`🏨 在 ${this.cellData.name} 建造了酒店`);
-        console.log(`📊 租金变化: $${oldRent} → $${newRent}`);
-        
-        // 明确更新租金状态
-        this.updateRentStatus();
-        
-        // 更新建筑显示
-        this.updateBuildingsDisplay();
-        
         return true;
     }
 
     // 检查是否可以建造房屋
     public canBuildHouse(): boolean {
-        return this.ownerId !== undefined && 
-               !this.mortgaged && 
-               this.houses < 4 && 
-               !this.hotel &&
-               this.cellData.type === CellType.PROPERTY;
+        if (this.ownerId === undefined) return false;
+        if (this.hotel) return false;
+        if (this.houses >= 4) return false;
+        if (this.mortgaged) return false;
+        if (this.cellData.type !== CellType.PROPERTY) return false;
+        
+        // TODO: 检查是否拥有同色地产套组
+        return true;
     }
 
     // 检查是否可以建造酒店
     public canBuildHotel(): boolean {
-        return this.ownerId !== undefined && 
-               !this.mortgaged && 
-               this.houses === 4 && 
-               !this.hotel &&
-               this.cellData.type === CellType.PROPERTY;
+        if (this.ownerId === undefined) return false;
+        if (this.hotel) return false;
+        if (this.houses !== 4) return false;
+        if (this.mortgaged) return false;
+        if (this.cellData.type !== CellType.PROPERTY) return false;
+        
+        return true;
     }
 
     // 抵押地产
@@ -244,52 +110,33 @@ export class Property {
             return false;
         }
 
-        const oldRent = this.getCurrentRent();
         this.mortgaged = true;
-        const newRent = this.getCurrentRent(); // 抵押后租金变为0
-        const mortgageValue = Math.floor((this.cellData.price || 0) / 2);
+        this.updateVisualOwnership();
         
-        console.log(`🏦 ${this.cellData.name} 已抵押，获得 $${mortgageValue}`);
-        console.log(`📊 租金变化: $${oldRent} → $${newRent} (抵押状态)`);
-        
-        // 明确更新租金状态
-        this.updateRentStatus();
-        
-        // 更新视觉显示
-        this.updateOwnershipDisplay();
-        
+        console.log(`🏦 ${this.cellData.name} 已抵押`);
         return true;
     }
 
     // 赎回地产
     public unmortgage(): boolean {
-        if (!this.mortgaged || this.ownerId === undefined) {
+        if (!this.mortgaged) {
             return false;
         }
 
-        const oldRent = this.getCurrentRent(); // 赎回前租金为0
         this.mortgaged = false;
-        const newRent = this.getCurrentRent(); // 赎回后恢复租金
-        const redeemCost = Math.floor((this.cellData.price || 0) * 0.6); // 赎回成本为价格的60%
+        this.updateVisualOwnership();
         
-        console.log(`🏦 ${this.cellData.name} 已赎回，花费 $${redeemCost}`);
-        console.log(`📊 租金变化: $${oldRent} → $${newRent} (赎回恢复)`);
-        
-        // 明确更新租金状态
-        this.updateRentStatus();
-        
-        // 更新视觉显示
-        this.updateOwnershipDisplay();
-        
+        console.log(`💰 ${this.cellData.name} 已赎回`);
         return true;
     }
 
     // 检查是否可以抵押
     public canMortgage(): boolean {
-        return this.ownerId !== undefined && 
-               !this.mortgaged && 
-               this.houses === 0 && 
-               !this.hotel;
+        if (this.ownerId === undefined) return false;
+        if (this.mortgaged) return false;
+        if (this.houses > 0 || this.hotel) return false; // 有建筑时不能抵押
+        
+        return true;
     }
 
     // 获取抵押价值
@@ -299,95 +146,179 @@ export class Property {
 
     // 获取赎回成本
     public getRedeemCost(): number {
-        return Math.floor((this.cellData.price || 0) * 0.6);
+        const mortgageValue = this.getMortgageValue();
+        return Math.floor(mortgageValue * 1.1); // 抵押价值的110%
     }
 
-    // 显示所有权标识
-    private showOwnershipIndicator(playerId: number): void {
-        // 玩家颜色配置
-        const playerColors = [0xFF0000, 0x0000FF, 0x00FF00, 0xFFD700];
-        const color = playerColors[playerId] || 0xFFFFFF;
-
-        if (this.ownerIndicator) {
-            this.ownerIndicator.destroy();
+    // 获取当前租金
+    public getCurrentRent(diceTotal?: number, propertyManager?: any): number {
+        if (this.ownerId === undefined || this.mortgaged) {
+            return 0;
         }
 
-        this.ownerIndicator = this.scene.add.graphics();
-        this.ownerIndicator.lineStyle(3, color);
-        
-        const x = this.cellData.position.x;
-        const y = this.cellData.position.y;
-        
-        // 在格子边缘绘制所有权边框
-        if (this.cellData.id >= 1 && this.cellData.id <= 9) {
-            // 底边
-            this.ownerIndicator.strokeRect(x - 35, y - 25, 70, 50);
-        } else if (this.cellData.id >= 11 && this.cellData.id <= 19) {
-            // 左边
-            this.ownerIndicator.strokeRect(x - 25, y - 35, 50, 70);
-        } else if (this.cellData.id >= 21 && this.cellData.id <= 29) {
-            // 顶边
-            this.ownerIndicator.strokeRect(x - 35, y - 25, 70, 50);
-        } else if (this.cellData.id >= 31 && this.cellData.id <= 39) {
-            // 右边
-            this.ownerIndicator.strokeRect(x - 25, y - 35, 50, 70);
-        } else {
-            // 角落格子 (特殊处理某些角落的可购买地产，如公用事业和铁路)
-            this.ownerIndicator.strokeRect(x - 35, y - 35, 70, 70);
-        }
-
-        // 将所有权标识添加到棋盘容器
-        this.boardContainer.add(this.ownerIndicator);
-
-        console.log(`🎨 为 ${this.cellData.name} 显示所有权标识 (玩家${playerId + 1})`);
-        this.updateOwnershipDisplay();
-    }
-
-    // 更新所有权显示（抵押状态等）
-    private updateOwnershipDisplay(): void {
-        if (!this.ownerIndicator) return;
-
-        if (this.mortgaged) {
-            // 抵押状态：虚线边框
-            this.ownerIndicator.setAlpha(0.5);
-        } else {
-            this.ownerIndicator.setAlpha(1);
+        switch (this.cellData.type) {
+            case CellType.PROPERTY:
+                return this.getPropertyRent();
+                
+            case CellType.RAILROAD:
+                return this.getRailroadRent(propertyManager);
+                
+            case CellType.UTILITY:
+                return this.getUtilityRent(diceTotal, propertyManager);
+                
+            default:
+                return 0;
         }
     }
 
-    // 更新建筑显示
-    private updateBuildingsDisplay(): void {
-        // 清除现有建筑显示
-        if (this.buildingsContainer) {
-            this.buildingsContainer.destroy();
+    // 计算地产租金
+    private getPropertyRent(): number {
+        if (!this.cellData.rent || this.cellData.rent.length === 0) {
+            return 0;
         }
-
-        if (this.houses === 0 && !this.hotel) {
-            return;
-        }
-
-        this.buildingsContainer = this.scene.add.container();
-        const x = this.cellData.position.x;
-        const y = this.cellData.position.y;
 
         if (this.hotel) {
-            // 显示酒店（红色大方块）
-            const hotel = this.scene.add.graphics();
-            hotel.fillStyle(0xFF0000);
-            hotel.fillRect(x - 8, y - 15, 16, 10);
-            this.buildingsContainer.add(hotel);
+            return this.cellData.rent[5] || 0; // 酒店租金
+        } else if (this.houses > 0) {
+            return this.cellData.rent[this.houses] || 0; // 房屋租金
         } else {
-            // 显示房屋（绿色小方块）
-            for (let i = 0; i < this.houses; i++) {
-                const house = this.scene.add.graphics();
-                house.fillStyle(0x00AA00);
-                house.fillRect(x - 15 + (i * 8), y - 12, 6, 6);
-                this.buildingsContainer.add(house);
-            }
+            // TODO: 检查是否拥有同色地产套组，如果是则租金翻倍
+            return this.cellData.rent[0] || 0; // 基础租金
+        }
+    }
+
+    // 计算铁路租金
+    private getRailroadRent(propertyManager?: any): number {
+        if (!propertyManager || !this.cellData.rent) {
+            return this.cellData.rent?.[0] || 25;
         }
 
-        // 将建筑容器添加到棋盘容器
-        this.boardContainer.add(this.buildingsContainer);
+        // 计算玩家拥有的铁路数量
+        const playerProperties = propertyManager.getPlayerProperties(this.ownerId!);
+        const railroadCount = playerProperties.filter((prop: any) => 
+            prop.getInfo().type === CellType.RAILROAD
+        ).length;
+
+        const rentIndex = Math.min(railroadCount - 1, 3);
+        return this.cellData.rent[rentIndex] || 25;
+    }
+
+    // 计算公用事业租金
+    private getUtilityRent(diceTotal?: number, propertyManager?: any): number {
+        if (!diceTotal || !propertyManager) {
+            return 0;
+        }
+
+        // 计算玩家拥有的公用事业数量
+        const playerProperties = propertyManager.getPlayerProperties(this.ownerId!);
+        const utilityCount = playerProperties.filter((prop: any) => 
+            prop.getInfo().type === CellType.UTILITY
+        ).length;
+
+        const multiplier = utilityCount === 1 ? 4 : 10;
+        return diceTotal * multiplier;
+    }
+
+    // 更新所有权视觉显示
+    private updateVisualOwnership(): void {
+        // 移除旧的所有权指示器
+        if (this.ownerIndicator) {
+            this.ownerIndicator.destroy();
+            this.ownerIndicator = undefined;
+        }
+
+        if (this.ownerId !== undefined) {
+            this.ownerIndicator = this.scene.add.graphics();
+            
+            // 根据玩家ID设置颜色
+            const playerColors = [0xFF0000, 0x0000FF, 0x00FF00, 0xFFD700]; // 红、蓝、绿、金
+            const color = playerColors[this.ownerId % playerColors.length];
+            
+            if (this.mortgaged) {
+                // 抵押状态：使用虚线边框
+                this.ownerIndicator.lineStyle(3, color, 0.6);
+                this.ownerIndicator.strokeRect(
+                    this.cellData.position.x - 32, 
+                    this.cellData.position.y - 22, 
+                    64, 44
+                );
+                
+                // 添加抵押标识
+                const mortgageText = this.scene.add.text(
+                    this.cellData.position.x, 
+                    this.cellData.position.y, 
+                    'M', {
+                    fontSize: '12px',
+                    color: '#FFFFFF',
+                    backgroundColor: '#FF0000',
+                    padding: { x: 2, y: 1 }
+                });
+                mortgageText.setOrigin(0.5);
+                this.container.add(mortgageText);
+            } else {
+                // 正常拥有：实线边框
+                this.ownerIndicator.lineStyle(3, color);
+                this.ownerIndicator.strokeRect(
+                    this.cellData.position.x - 32, 
+                    this.cellData.position.y - 22, 
+                    64, 44
+                );
+            }
+            
+            this.container.add(this.ownerIndicator);
+        }
+    }
+
+    // 更新建筑视觉显示
+    private updateBuildingVisuals(): void {
+        // 清除旧的建筑指示器
+        this.buildingIndicators.forEach(indicator => indicator.destroy());
+        this.buildingIndicators = [];
+
+        if (this.hotel) {
+            // 显示酒店
+            const hotelText = this.scene.add.text(
+                this.cellData.position.x, 
+                this.cellData.position.y - 30, 
+                '🏨', {
+                fontSize: '16px'
+            });
+            hotelText.setOrigin(0.5);
+            this.buildingIndicators.push(hotelText);
+            this.container.add(hotelText);
+        } else if (this.houses > 0) {
+            // 显示房屋
+            for (let i = 0; i < this.houses; i++) {
+                const houseText = this.scene.add.text(
+                    this.cellData.position.x - 15 + (i * 8), 
+                    this.cellData.position.y - 30, 
+                    '🏠', {
+                    fontSize: '10px'
+                });
+                houseText.setOrigin(0.5);
+                this.buildingIndicators.push(houseText);
+                this.container.add(houseText);
+            }
+        }
+    }
+
+    // 获取地产信息
+    public getInfo(): PropertyInfo {
+        return {
+            id: this.cellData.id,
+            name: this.cellData.name,
+            type: this.cellData.type,
+            price: this.cellData.price,
+            baseRent: this.cellData.rent?.[0] || 0,
+            currentRent: this.getCurrentRent(),
+            ownerId: this.ownerId,
+            houses: this.houses,
+            hotel: this.hotel,
+            mortgaged: this.mortgaged,
+            canPurchase: this.ownerId === undefined,
+            color: this.cellData.color,
+            position: this.cellData.position
+        };
     }
 
     // 获取所有者ID
@@ -402,19 +333,20 @@ export class Property {
         this.hotel = false;
         this.mortgaged = false;
         
+        // 清除视觉元素
         if (this.ownerIndicator) {
             this.ownerIndicator.destroy();
             this.ownerIndicator = undefined;
         }
         
-        if (this.buildingsContainer) {
-            this.buildingsContainer.destroy();
-            this.buildingsContainer = undefined;
-        }
+        this.buildingIndicators.forEach(indicator => indicator.destroy());
+        this.buildingIndicators = [];
+        
+        console.log(`🔄 地产 ${this.cellData.name} 已重置`);
     }
 
     // 销毁
     public destroy(): void {
         this.reset();
     }
-} 
+}
